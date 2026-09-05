@@ -1,4 +1,6 @@
 """Dagster orchestration: ingestion (Scrapy) then transformation, as dependent assets."""
+import json
+import logging
 import os
 import subprocess
 import sys
@@ -25,16 +27,32 @@ class DateRangeConfig(Config):
 def landing_documents(context, config: DateRangeConfig) -> MaterializeResult:
     """Run the Scrapy crawl for the configured range into Mongo + MinIO landing."""
     context.log.info(f"Starting crawl {config.start_date} .. {config.end_date}")
-    result = subprocess.run(
+    with subprocess.Popen(
         [
             sys.executable, "-m", "scrapy", "crawl", "wrc",
             "-a", f"start_date={config.start_date}",
             "-a", f"end_date={config.end_date}",
         ],
         env={**os.environ, "SCRAPY_SETTINGS_MODULE": "wrc_pipeline.settings"},
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Scrapy crawl failed (exit {result.returncode})")
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    ) as process:
+        for line in process.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+                level = getattr(logging, record.get("level", "INFO"), logging.INFO)
+            except (ValueError, AttributeError, TypeError):
+                level = logging.INFO
+            context.log.log(level, line)
+        returncode = process.wait()
+    if returncode != 0:
+        raise RuntimeError(f"Scrapy crawl failed (exit {returncode})")
     return MaterializeResult(
         metadata={"start_date": config.start_date, "end_date": config.end_date}
     )

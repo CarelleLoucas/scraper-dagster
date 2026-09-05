@@ -15,6 +15,11 @@ storage:
 telemetry:
   enabled: false
 
+python_logs:
+  managed_python_loggers:
+    - wrc.transform
+  python_log_level: INFO
+
 run_launcher:
   module: dagster
   class: DefaultRunLauncher
