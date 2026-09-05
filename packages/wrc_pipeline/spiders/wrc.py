@@ -270,6 +270,7 @@ class WRCSpider(scrapy.Spider):
                 errback=self.document_error,
                 cb_kwargs={"metadata": metadata},
             )
+            
     def _stable_hash(self, response) -> str:
         """Hash meaningful content, ignoring per-request dynamic markup.
 

@@ -60,7 +60,7 @@ PostgreSQL.
 |------|---------|
 | `packages/wrc_pipeline/spiders/wrc.py` | Scrapy spider: partitioning, pagination, downloads |
 | `packages/wrc_pipeline/pipelines.py` | Stores documents in MinIO, metadata in MongoDB |
-| `packages/wrc_pipeline/transform/pipeline.py` | Landing → curated transformation and CLI entry point |
+| `packages/wrc_pipeline/transform/transform.py` | Landing → curated transformation and CLI entry point |
 | `packages/wrc_pipeline/logging_config.py` | Shared JSON logging setup |
 | `packages/wrc_pipeline/settings.py` | Scrapy settings |
 | `packages/orchestration/definitions.py` | Dagster assets and job |

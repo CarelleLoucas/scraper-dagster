@@ -105,17 +105,13 @@ def _curated_object_name(identifier: str, extension: str) -> str:
     return f"{safe}.{extension}"
 
 def _ascii_safe(value: str) -> str:
-    """MinIO object metadata (HTTP headers) must be US-ASCII. Replace
-    non-ASCII chars (e.g. the en-dash in 'IR - SC – 00003164') so storage
-    doesn't reject the header. The true identifier stays intact in MongoDB."""
+    """MinIO object metadata (HTTP headers) must be US-ASCII so storage
+    doesn't reject the header."""
     return value.encode("ascii", "replace").decode("ascii")
 
 
 def run_transformation(start_date: str, end_date: str) -> dict:
     """Transform landing documents in [start_date, end_date] into the curated zone.
-
-    Dates are ``YYYY-MM-DD`` strings and match on the record ``published_date``
-    (also stored as ``YYYY-MM-DD``). Returns a summary dict for logging.
     """
     src_collection_name = os.getenv("MONGO_COLLECTION", "wrc_decisions")
     dst_collection_name = os.getenv("MONGO_COLLECTION_CLEAN", "wrc_decisions_clean")
@@ -228,7 +224,7 @@ def run_transformation(start_date: str, end_date: str) -> dict:
 
 
 def main() -> None:
-    """Run with python -m wrc_pipeline.transform.pipeline."""
+    """Run with python -m wrc_pipeline.transform.transform."""
     configure_json_logging()
     parser = argparse.ArgumentParser(description="Transform WRC landing documents.")
     parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")

@@ -61,7 +61,7 @@ def landing_documents(context, config: DateRangeConfig) -> MaterializeResult:
 @asset(deps=[landing_documents])
 def cleaned_documents(context, config: DateRangeConfig) -> MaterializeResult:
     """Clean HTML, rename to identifier.ext, write to the curated bucket + collection."""
-    from wrc_pipeline.transform.pipeline import run_transformation
+    from wrc_pipeline.transform.transform import run_transformation
 
     summary = run_transformation(config.start_date, config.end_date)
     context.log.info(f"Transformation summary: {summary}")
