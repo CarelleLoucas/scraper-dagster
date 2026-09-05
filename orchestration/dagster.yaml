@@ -1,0 +1,16 @@
+storage:
+  postgres:
+    postgres_db:
+      username:
+        env: POSTGRES_USER
+      password:
+        env: POSTGRES_PASSWORD
+      hostname:
+        env: POSTGRES_HOST
+      db_name:
+        env: POSTGRES_DATABASE
+      port:
+        env: POSTGRES_PORT
+
+telemetry:
+  enabled: false

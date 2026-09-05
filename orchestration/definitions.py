@@ -1,0 +1,65 @@
+"""Dagster orchestration: ingestion (Scrapy) then transformation, as dependent assets."""
+import subprocess
+import sys
+
+from dagster import (
+    Config,
+    Definitions,
+    MaterializeResult,
+    asset,
+    define_asset_job,
+)
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+class DateRangeConfig(Config):
+    """Shared run config so both assets scrape/transform the same window."""
+    start_date: str  # YYYY-MM-DD
+    end_date: str    # YYYY-MM-DD
+
+
+@asset
+def landing_documents(context, config: DateRangeConfig) -> MaterializeResult:
+    """Run the Scrapy crawl for the configured range into Mongo + MinIO landing."""
+    context.log.info(
+        f"Starting crawl {config.start_date} .. {config.end_date}"
+    )
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "scrapy", "crawl", "wrc",
+            "-a", f"start_date={config.start_date}",
+            "-a", f"end_date={config.end_date}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    context.log.info(result.stdout[-4000:])  # tail of crawl logs
+    if result.returncode != 0:
+        context.log.error(result.stderr[-4000:])
+        raise RuntimeError(f"Scrapy crawl failed (exit {result.returncode})")
+    return MaterializeResult(
+        metadata={"start_date": config.start_date, "end_date": config.end_date}
+    )
+
+
+@asset(deps=[landing_documents])
+def cleaned_documents(context, config: DateRangeConfig) -> MaterializeResult:
+    """Clean HTML, rename to identifier.ext, write to the curated bucket + collection."""
+    from wrc_pipeline.transform import run_transformation
+
+    summary = run_transformation(config.start_date, config.end_date)
+    context.log.info(f"Transformation summary: {summary}")
+    return MaterializeResult(metadata=summary)
+
+
+wrc_pipeline_job = define_asset_job(
+    name="wrc_pipeline_job",
+    selection=["landing_documents", "cleaned_documents"],
+)
+
+defs = Definitions(
+    assets=[landing_documents, cleaned_documents],
+    jobs=[wrc_pipeline_job],
+)
