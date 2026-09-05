@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environment
+.venv/
+venv/
+
+# Environment / secrets — never commit the real one
+.env
+
+# Scrapy
+.scrapy/
+
+# Dagster local artifacts
+orchestration/storage/
+orchestration/history/
+orchestration/logs/
+tmp*/
+
+# Local scraped data (if you ever write landing files to disk)
+data/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

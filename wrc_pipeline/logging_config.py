@@ -19,6 +19,8 @@ def configure_json_logging(level: int = logging.INFO) -> None:
             json_ensure_ascii=False,
         )
     )
+    for noisy in ("pymongo", "urllib3", "scrapy.core.scraper"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level)

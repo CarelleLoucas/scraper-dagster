@@ -1,0 +1,10 @@
+Scrapy>=2.13,<3
+minio>=7.2,<8
+pymongo>=4.10,<5
+python-dotenv>=1.0,<2
+python-json-logger>=3.1,<4
+beautifulsoup4>=4.12,<5
+lxml>=5.3,<6
+dagster>=1.9,<2
+dagster-webserver>=1.9,<2
+dagster-postgres>=0.25,<0.26

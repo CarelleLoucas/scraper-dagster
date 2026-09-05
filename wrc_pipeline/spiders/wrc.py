@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlencode, urlparse
 
 import scrapy
+from scrapy import signals
 
 
 class WRCSpider(scrapy.Spider):
@@ -89,6 +90,28 @@ class WRCSpider(scrapy.Spider):
 
         self.output_dir = Path(output_dir)
 
+        # Run-level accounting for the end-of-run summary (requirement 10).
+        self.stats_found = 0        # results the site reported across partitions
+        self.stats_scraped = 0      # documents successfully stored
+        self.stats_failed = 0       # documents that failed, with reasons logged
+        self.failures: list[dict] = []
+        self.counted_partitions: set = set()
+
+    @classmethod
+    def from_crawler(cls, crawler, *args, **kwargs):
+        spider = super().from_crawler(crawler, *args, **kwargs)
+        crawler.signals.connect(spider.on_spider_closed, signal=signals.spider_closed)
+        return spider
+
+    def on_spider_closed(self, spider, reason):
+        self.logger.info("run_summary", extra={
+            "results_found": self.stats_found,
+            "documents_scraped": self.stats_scraped,
+            "documents_failed": self.stats_failed,
+            "failures": self.failures,
+            "close_reason": reason,
+        })
+
     async def start(self):
         """Create one initial request per body and calendar month."""
         for body_name, body_id in self.BODIES.items():
@@ -167,6 +190,10 @@ class WRCSpider(scrapy.Spider):
     ) -> Iterator[scrapy.Request]:
         entries = self.extract_result_entries(response)
         total = self.extract_total_count(response)
+        partition_key = (body_name, partition)
+        if total is not None and partition_key not in self.counted_partitions:
+            self.counted_partitions.add(partition_key)
+            self.stats_found += total
         context = {
             "body_name": body_name,
             "body_id": body_id,
@@ -327,6 +354,7 @@ class WRCSpider(scrapy.Spider):
             len(response.body),
             file_hash,
         )
+        self.stats_scraped += 1
         yield {
             **metadata,
             "source_url": response.url,
@@ -400,9 +428,27 @@ class WRCSpider(scrapy.Spider):
     def document_error(self, failure: Any) -> None:
         self.log_failure("document_download_failed", failure)
 
+    # def log_failure(self, event: str, failure: Any) -> None:
+    #     response = getattr(failure.value, "response", None)
+    #     status = response.status if response is not None else None
+    #     self.logger.error(
+    #         "%s url=%s status=%s error=%r",
+    #         event,
+    #         failure.request.url,
+    #         status,
+    #         failure.value,
+    #     )
+
     def log_failure(self, event: str, failure: Any) -> None:
         response = getattr(failure.value, "response", None)
         status = response.status if response is not None else None
+        self.stats_failed += 1
+        self.failures.append({
+            "event": event,
+            "url": failure.request.url,
+            "status": status,
+            "error": repr(failure.value),
+        })
         self.logger.error(
             "%s url=%s status=%s error=%r",
             event,
