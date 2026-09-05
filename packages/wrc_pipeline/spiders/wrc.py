@@ -18,10 +18,10 @@ class WRCSpider(scrapy.Spider):
     search_url = "https://www.workplacerelations.ie/en/search/"
 
     BODIES = {
-        "employment_appeals_tribunal": "1",
-        "equality_tribunal": "2",
+        "employment_appeals_tribunal": "2",
+        "equality_tribunal": "1",
         "labour_court": "3",
-        "workplace_relations_commission": "4",
+        "workplace_relations_commission": "15376",
     }
 
     DATE_PATTERN = re.compile(r"\b\d{1,2}/\d{1,2}/\d{4}\b")
