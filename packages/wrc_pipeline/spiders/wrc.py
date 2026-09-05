@@ -17,8 +17,6 @@ class WRCSpider(scrapy.Spider):
     allowed_domains = ["workplacerelations.ie"]
     search_url = "https://www.workplacerelations.ie/en/search/"
 
-    # body=3 was verified from a browser capture. Recheck the others if the
-    # website changes its search form.
     BODIES = {
         "employment_appeals_tribunal": "1",
         "equality_tribunal": "2",
@@ -104,13 +102,7 @@ class WRCSpider(scrapy.Spider):
         return spider
 
     def on_spider_closed(self, spider, reason):
-        self.logger.info("run_summary", extra={
-            "results_found": self.stats_found,
-            "documents_scraped": self.stats_scraped,
-            "documents_failed": self.stats_failed,
-            "failures": self.failures,
-            "close_reason": reason,
-        })
+        self.logger.info("run_summary", extra={"results_found": self.stats_found,"documents_scraped": self.stats_scraped,"documents_failed": self.stats_failed,"failures": self.failures,"close_reason": reason})
 
     async def start(self):
         """Create one initial request per body and calendar month."""
@@ -164,14 +156,8 @@ class WRCSpider(scrapy.Spider):
             "range_end": range_end,
             "partition": partition,
         }
-        self.logger.info(
-            "partition_started body=%s partition=%s start=%s end=%s url=%s",
-            body_name,
-            partition,
-            range_start,
-            range_end,
-            url,
-        )
+        self.logger.info("partition_started body=%s partition=%s start=%s end=%s url=%s",body_name,partition,range_start,range_end,url)
+        
         return scrapy.Request(
             url,
             callback=self.parse_search_results,
@@ -201,16 +187,7 @@ class WRCSpider(scrapy.Spider):
             "range_end": range_end,
             "partition": partition,
         }
-        self.logger.info(
-            "search_page_received body=%s partition=%s range=%s..%s "
-            "total=%s page_records=%s",
-            body_name,
-            partition,
-            range_start,
-            range_end,
-            total,
-            len(entries),
-        )
+        self.logger.info("search_page_received body=%s partition=%s range=%s..%s total=%s page_records=%s", body_name, partition, range_start, range_end, total, len(entries))
 
         if next_page := self.extract_next_page(response):
             yield from self.document_requests(response, entries, body_name, partition)
@@ -232,15 +209,7 @@ class WRCSpider(scrapy.Spider):
                 )
 
             midpoint = range_start + (range_end - range_start) // 2
-            self.logger.warning(
-                "pagination_not_detected_splitting_range body=%s partition=%s "
-                "range=%s..%s total=%s",
-                body_name,
-                partition,
-                range_start,
-                range_end,
-                total,
-            )
+            self.logger.warning("pagination_not_detected_splitting_range body=%s partition=%s range=%s..%s total=%s", body_name, partition, range_start, range_end, total)
             yield self.create_search_request(
                 body_name, body_id, range_start, midpoint, partition
             )
@@ -344,16 +313,7 @@ class WRCSpider(scrapy.Spider):
             f"{metadata['body']}/{metadata['partition_date']}/"
             f"{filename}.{extension}"
         )
-        self.logger.info(
-            "document_scraped identifier=%s body=%s partition=%s type=%s "
-            "bytes=%s hash=%s",
-            metadata["identifier"],
-            metadata["body"],
-            metadata["partition_date"],
-            extension,
-            len(response.body),
-            file_hash,
-        )
+        self.logger.info("document_scraped identifier=%s body=%s partition=%s type=%s bytes=%s hash=%s", metadata["identifier"], metadata["body"], metadata["partition_date"], extension, len(response.body), file_hash)
         self.stats_scraped += 1
         yield {
             **metadata,
@@ -428,17 +388,6 @@ class WRCSpider(scrapy.Spider):
     def document_error(self, failure: Any) -> None:
         self.log_failure("document_download_failed", failure)
 
-    # def log_failure(self, event: str, failure: Any) -> None:
-    #     response = getattr(failure.value, "response", None)
-    #     status = response.status if response is not None else None
-    #     self.logger.error(
-    #         "%s url=%s status=%s error=%r",
-    #         event,
-    #         failure.request.url,
-    #         status,
-    #         failure.value,
-    #     )
-
     def log_failure(self, event: str, failure: Any) -> None:
         response = getattr(failure.value, "response", None)
         status = response.status if response is not None else None
@@ -449,13 +398,7 @@ class WRCSpider(scrapy.Spider):
             "status": status,
             "error": repr(failure.value),
         })
-        self.logger.error(
-            "%s url=%s status=%s error=%r",
-            event,
-            failure.request.url,
-            status,
-            failure.value,
-        )
+        self.logger.error("%s url=%s status=%s error=%r", event, failure.request.url, status, failure.value)
 
     @staticmethod
     def parse_cli_date(value: str, argument_name: str) -> date:

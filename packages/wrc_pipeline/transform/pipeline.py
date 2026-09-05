@@ -11,6 +11,7 @@ Every file is renamed to ``identifier.ext``, written to a NEW bucket, and its
 metadata (new path + new hash) is written to a NEW Mongo collection. The landing
 zone is read-only here and is never modified.
 """
+import argparse
 import hashlib
 import logging
 import os
@@ -26,7 +27,6 @@ from pymongo import ASCENDING, MongoClient
 from wrc_pipeline.logging_config import configure_json_logging
 
 load_dotenv()
-configure_json_logging()
 logger = logging.getLogger("wrc.transform")
 
 # Tags that are never part of the decision text.
@@ -132,10 +132,7 @@ def run_transformation(start_date: str, end_date: str) -> dict:
 
         query = {"published_date": {"$gte": start_date, "$lte": end_date}}
         total = src.count_documents(query)
-        logger.info("transform_started", extra={
-            "start_date": start_date, "end_date": end_date,
-            "source_collection": src_collection_name, "matched": total,
-        })
+        logger.info("transform_started", extra={"start_date": start_date, "end_date": end_date, "source_collection": src_collection_name, "matched": total})
 
         for record in src.find(query):
             identifier = record.get("identifier", "UNKNOWN")
@@ -195,10 +192,7 @@ def run_transformation(start_date: str, end_date: str) -> dict:
                     upsert=True,
                 )
                 processed += 1
-                logger.info("document_transformed", extra={
-                    "identifier": identifier, "extension": extension,
-                    "new_hash": new_hash, "new_object": new_object,
-                })
+                logger.info("document_transformed", extra={"identifier": identifier, "extension": extension, "new_hash": new_hash, "new_object": new_object})
             except Exception as error:  # noqa: BLE001 - log and continue per brief
                 failed += 1
                 failures.append({
@@ -206,10 +200,7 @@ def run_transformation(start_date: str, end_date: str) -> dict:
                     "object_name": object_name,
                     "error": repr(error),
                 })
-                logger.error("document_transform_failed", extra={
-                    "identifier": identifier, "object_name": object_name,
-                    "error": repr(error),
-                })
+                logger.error("document_transform_failed", extra={"identifier": identifier, "object_name": object_name, "error": repr(error)})
 
         summary = {
             "matched": total,
@@ -226,13 +217,16 @@ def run_transformation(start_date: str, end_date: str) -> dict:
             mongo.close()
 
 
-if __name__ == "__main__":
-    import argparse
-
+def main() -> None:
+    """Run with python -m wrc_pipeline.transform.pipeline."""
+    configure_json_logging()
     parser = argparse.ArgumentParser(description="Transform WRC landing documents.")
     parser.add_argument("--start-date", required=True, help="YYYY-MM-DD")
     parser.add_argument("--end-date", required=True, help="YYYY-MM-DD")
     args = parser.parse_args()
-
     result = run_transformation(args.start_date, args.end_date)
     print(result)
+
+
+if __name__ == "__main__":
+    main()

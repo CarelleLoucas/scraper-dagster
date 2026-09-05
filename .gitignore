@@ -17,9 +17,9 @@ venv/
 .scrapy/
 
 # Dagster local artifacts
-orchestration/storage/
-orchestration/history/
-orchestration/logs/
+packages/orchestration/storage/
+packages/orchestration/history/
+packages/orchestration/logs/
 tmp*/
 
 # Local scraped data (if you ever write landing files to disk)

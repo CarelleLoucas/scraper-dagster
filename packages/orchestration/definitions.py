@@ -1,4 +1,5 @@
 """Dagster orchestration: ingestion (Scrapy) then transformation, as dependent assets."""
+import os
 import subprocess
 import sys
 
@@ -23,21 +24,16 @@ class DateRangeConfig(Config):
 @asset
 def landing_documents(context, config: DateRangeConfig) -> MaterializeResult:
     """Run the Scrapy crawl for the configured range into Mongo + MinIO landing."""
-    context.log.info(
-        f"Starting crawl {config.start_date} .. {config.end_date}"
-    )
+    context.log.info(f"Starting crawl {config.start_date} .. {config.end_date}")
     result = subprocess.run(
         [
             sys.executable, "-m", "scrapy", "crawl", "wrc",
             "-a", f"start_date={config.start_date}",
             "-a", f"end_date={config.end_date}",
         ],
-        capture_output=True,
-        text=True,
+        env={**os.environ, "SCRAPY_SETTINGS_MODULE": "wrc_pipeline.settings"},
     )
-    context.log.info(result.stdout[-4000:])  # tail of crawl logs
     if result.returncode != 0:
-        context.log.error(result.stderr[-4000:])
         raise RuntimeError(f"Scrapy crawl failed (exit {result.returncode})")
     return MaterializeResult(
         metadata={"start_date": config.start_date, "end_date": config.end_date}
@@ -47,7 +43,7 @@ def landing_documents(context, config: DateRangeConfig) -> MaterializeResult:
 @asset(deps=[landing_documents])
 def cleaned_documents(context, config: DateRangeConfig) -> MaterializeResult:
     """Clean HTML, rename to identifier.ext, write to the curated bucket + collection."""
-    from wrc_pipeline.transform import run_transformation
+    from wrc_pipeline.transform.pipeline import run_transformation
 
     summary = run_transformation(config.start_date, config.end_date)
     context.log.info(f"Transformation summary: {summary}")

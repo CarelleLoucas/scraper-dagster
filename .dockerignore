@@ -1,0 +1,10 @@
+**
+!requirements.txt
+!packages/
+!packages/orchestration/
+!packages/orchestration/*.py
+!packages/orchestration/*.yaml
+!packages/orchestration/*.conf
+!packages/wrc_pipeline/
+!packages/wrc_pipeline/**/*.py
+!packages/wrc_pipeline/*.py
