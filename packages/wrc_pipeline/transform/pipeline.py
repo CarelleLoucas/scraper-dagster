@@ -18,6 +18,7 @@ import os
 from datetime import datetime, timezone
 from io import BytesIO
 from urllib.parse import quote_plus
+import re
 
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -96,9 +97,18 @@ def clean_html(raw: bytes) -> bytes:
     return soup.encode("utf-8")
 
 
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+
 def _curated_object_name(identifier: str, extension: str) -> str:
-    """New name required by the brief: identifier.ext (identifier is unique)."""
-    return f"{identifier}.{extension}"
+    """Rename to identifier.ext (brief requirement), sanitized to safe chars."""
+    safe = _SAFE_NAME.sub("_", identifier).strip("_")
+    return f"{safe}.{extension}"
+
+def _ascii_safe(value: str) -> str:
+    """MinIO object metadata (HTTP headers) must be US-ASCII. Replace
+    non-ASCII chars (e.g. the en-dash in 'IR - SC – 00003164') so storage
+    doesn't reject the header. The true identifier stays intact in MongoDB."""
+    return value.encode("ascii", "replace").decode("ascii")
 
 
 def run_transformation(start_date: str, end_date: str) -> dict:
@@ -166,7 +176,7 @@ def run_transformation(start_date: str, end_date: str) -> dict:
                     dst_bucket, new_object, BytesIO(body), length=len(body),
                     content_type=record.get("content_type")
                     or "application/octet-stream",
-                    metadata={"sha256": new_hash, "identifier": identifier},
+                    metadata={"sha256": new_hash, "identifier": _ascii_safe(identifier)},
                 )
 
                 now = datetime.now(timezone.utc)

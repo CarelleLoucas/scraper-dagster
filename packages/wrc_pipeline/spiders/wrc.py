@@ -36,13 +36,6 @@ class WRCSpider(scrapy.Spider):
         "translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', "
         "'abcdefghijklmnopqrstuvwxyz'), 'view page'))]"
     )
-    NEXT_PAGE_SELECTORS = (
-        "//a[@rel='next']/@href",
-        "//a[contains(translate(normalize-space(.), "
-        "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'next')]/@href",
-        "//a[contains(@class, 'next')]/@href",
-        "//li[contains(@class, 'next')]/a/@href",
-    )
 
     custom_settings = {
         "ITEM_PIPELINES": {"wrc_pipeline.pipelines.MongoMinioPipeline": 300},
@@ -132,6 +125,7 @@ class WRCSpider(scrapy.Spider):
             yield current, range_end
             current = range_end + timedelta(days=1)
 
+
     def create_search_request(
         self,
         body_name: str,
@@ -139,6 +133,8 @@ class WRCSpider(scrapy.Spider):
         range_start: date,
         range_end: date,
         partition: str,
+        page: int = 1,
+        seen_so_far: int = 0,
     ) -> scrapy.Request:
         query = urlencode(
             {
@@ -146,6 +142,7 @@ class WRCSpider(scrapy.Spider):
                 "body": body_id,
                 "from": self.format_wrc_date(range_start),
                 "to": self.format_wrc_date(range_end),
+                "pageNumber": str(page),
             }
         )
         url = f"{self.search_url}?{query}"
@@ -155,9 +152,11 @@ class WRCSpider(scrapy.Spider):
             "range_start": range_start,
             "range_end": range_end,
             "partition": partition,
+            "page": page,
+            "seen_so_far": seen_so_far,
         }
-        self.logger.info("partition_started body=%s partition=%s start=%s end=%s url=%s",body_name,partition,range_start,range_end,url)
-        
+        self.logger.info("partition_started body=%s partition=%s page=%s start=%s end=%s url=%s", body_name, partition, page, range_start, range_end, url)
+
         return scrapy.Request(
             url,
             callback=self.parse_search_results,
@@ -173,56 +172,48 @@ class WRCSpider(scrapy.Spider):
         range_start: date,
         range_end: date,
         partition: str,
+        page: int = 1,
+        seen_so_far: int = 0,
     ) -> Iterator[scrapy.Request]:
         entries = self.extract_result_entries(response)
         total = self.extract_total_count(response)
+
+        # Count the reported total once per partition (first page only).
         partition_key = (body_name, partition)
         if total is not None and partition_key not in self.counted_partitions:
             self.counted_partitions.add(partition_key)
             self.stats_found += total
-        context = {
-            "body_name": body_name,
-            "body_id": body_id,
-            "range_start": range_start,
-            "range_end": range_end,
-            "partition": partition,
-        }
-        self.logger.info("search_page_received body=%s partition=%s range=%s..%s total=%s page_records=%s", body_name, partition, range_start, range_end, total, len(entries))
 
-        if next_page := self.extract_next_page(response):
-            yield from self.document_requests(response, entries, body_name, partition)
-            yield response.follow(
-                next_page,
-                callback=self.parse_search_results,
-                errback=self.search_error,
-                cb_kwargs=context,
-            )
-            return
+        collected = seen_so_far + len(entries)
+        self.logger.info("search_page_received body=%s partition=%s page=%s range=%s..%s total=%s page_records=%s collected=%s", body_name, partition, page, range_start, range_end, total, len(entries), collected)
 
-        # Narrow the range when pagination markup is missing, preventing silent
-        # data loss without reprocessing the visible subset.
-        if total is not None and total > len(entries):
-            if range_start == range_end:
-                raise RuntimeError(
-                    f"Pagination required for {body_name} on {range_start}: "
-                    f"the site reports {total} results but exposes {len(entries)}."
-                )
-
-            midpoint = range_start + (range_end - range_start) // 2
-            self.logger.warning("pagination_not_detected_splitting_range body=%s partition=%s range=%s..%s total=%s", body_name, partition, range_start, range_end, total)
-            yield self.create_search_request(
-                body_name, body_id, range_start, midpoint, partition
-            )
-            yield self.create_search_request(
-                body_name,
-                body_id,
-                midpoint + timedelta(days=1),
-                range_end,
-                partition,
-            )
-            return
-
+        # Always request the documents found on this page.
         yield from self.document_requests(response, entries, body_name, partition)
+
+        # If the site reports more results than we've collected so far, and this
+        # page returned something, fetch the next page by number.
+        if total is not None and collected < total and len(entries) > 0:
+            yield self.create_search_request(
+                body_name, body_id, range_start, range_end, partition,
+                page=page + 1, seen_so_far=collected,
+            )
+            return
+
+        # Safety net: the site reports more than we ever collected, but a page
+        # returned nothing (so we can't page further). Log every missing record.
+        if total is not None and collected < total and len(entries) == 0:
+            missing = total - collected
+            self.stats_failed += missing
+            self.failures.append({
+                "event": "records_unretrieved",
+                "body": body_name,
+                "partition": partition,
+                "range": f"{range_start}..{range_end}",
+                "reported_total": total,
+                "collected": collected,
+                "missing": missing,
+            })
+            self.logger.error("records_unretrieved body=%s partition=%s range=%s..%s reported=%s collected=%s missing=%s", body_name, partition, range_start, range_end, total, collected, missing)
 
     def extract_result_entries(self, response: scrapy.http.Response) -> list[dict]:
         """Extract unique decision links and their search-result metadata."""
@@ -331,13 +322,6 @@ class WRCSpider(scrapy.Spider):
         text = " ".join(response.xpath("//text()").getall())
         match = cls.RESULT_COUNT_PATTERN.search(text)
         return int(match.group(1).replace(",", "")) if match else None
-
-    @classmethod
-    def extract_next_page(cls, response: scrapy.http.Response) -> str | None:
-        for selector in cls.NEXT_PAGE_SELECTORS:
-            if href := response.xpath(selector).get():
-                return href
-        return None
 
     @classmethod
     def find_date(cls, text_parts: Iterable[str]) -> str | None:

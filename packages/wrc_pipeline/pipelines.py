@@ -58,6 +58,15 @@ class MongoMinioPipeline:
             self.bucket,
         )
 
+    @staticmethod
+    def _ascii_safe(value: str) -> str:
+        """MinIO object metadata (HTTP headers) must be US-ASCII.
+        Replace non-ASCII chars (e.g. en-dash in 'IR - SC – 00003164')
+        so storage doesn't reject the header. The true identifier is
+        preserved in the object data and in MongoDB.
+        """
+        return value.encode("ascii", "replace").decode("ascii")
+
     def process_item(self, item: Any, spider):
         adapter = ItemAdapter(item)
         content = adapter.get("_content")
@@ -76,7 +85,7 @@ class MongoMinioPipeline:
             content_type=adapter.get("content_type") or "application/octet-stream",
             metadata={
                 "sha256": adapter["file_hash"],
-                "identifier": adapter["identifier"],
+                "identifier": self._ascii_safe(adapter["identifier"]),
             },
         )
 
