@@ -79,22 +79,43 @@ def _minio_client() -> Minio:
 
 
 def clean_html(raw: bytes) -> bytes:
-    """Return only the decision content, dropping chrome (nav/header/footer/etc.)."""
-    soup = BeautifulSoup(raw, "lxml")
+    """Return only the decision content, cleaned for data quality.
+
+    Steps: decode as UTF-8, strip chrome (nav/header/footer/scripts/back-link),
+    select the decision container, drop empty paragraphs, and replace
+    non-breaking spaces with regular spaces.
+    """
+    text = raw.decode("utf-8", errors="replace")
+    soup = BeautifulSoup(text, "lxml")
 
     # Remove obvious non-content elements wherever they appear.
     for tag in soup(list(_STRIP_TAGS)):
         tag.decompose()
-    # Drop the "Return to Search" back-link seen on decision pages.
     for anchor in soup.find_all("a"):
         if "return to search" in anchor.get_text(strip=True).casefold():
             anchor.decompose()
 
+    # Select the decision content container.
+    node = None
     for selector in _CONTENT_SELECTORS:
         node = soup.select_one(selector)
         if node is not None:
-            return node.encode("utf-8")
-    return soup.encode("utf-8")
+            break
+    if node is None:
+        node = soup
+
+    # Drop empty paragraphs left behind after stripping.
+    for p in node.find_all("p"):
+        if not p.get_text(strip=True) and not p.find(("img", "table", "br")):
+            p.decompose()
+
+    # Replace non-breaking spaces only — safe, no word-gluing.
+    for text_node in node.find_all(string=True):
+        cleaned = str(text_node).replace("\xa0", " ")
+        if cleaned != str(text_node):
+            text_node.replace_with(cleaned)
+
+    return node.encode("utf-8")
 
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
