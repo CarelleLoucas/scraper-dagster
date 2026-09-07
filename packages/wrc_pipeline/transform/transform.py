@@ -109,7 +109,7 @@ def clean_html(raw: bytes) -> bytes:
         if not p.get_text(strip=True) and not p.find(("img", "table", "br")):
             p.decompose()
 
-    # Replace non-breaking spaces only — safe, no word-gluing.
+    # Replace non-breaking spaces
     for text_node in node.find_all(string=True):
         cleaned = str(text_node).replace("\xa0", " ")
         if cleaned != str(text_node):
