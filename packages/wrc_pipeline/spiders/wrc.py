@@ -270,7 +270,7 @@ class WRCSpider(scrapy.Spider):
                 errback=self.document_error,
                 cb_kwargs={"metadata": metadata},
             )
-            
+
     def _stable_hash(self, response) -> str:
         """Hash meaningful content, ignoring per-request dynamic markup.
 
@@ -298,7 +298,6 @@ class WRCSpider(scrapy.Spider):
             "utf-8", errors="ignore"
         ).lower()
         extension = self.detect_extension(response.url, content_type)
-        # file_hash = hashlib.sha256(response.body).hexdigest()
         file_hash = self._stable_hash(response)
         filename = self.safe_filename(metadata["identifier"])
         file_path = (

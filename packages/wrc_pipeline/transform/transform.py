@@ -23,7 +23,7 @@ import re
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from minio import Minio
-from pymongo import ASCENDING, MongoClient
+from pymongo import ASCENDING, MongoClient, UpdateOne   
 
 from wrc_pipeline.logging_config import configure_json_logging
 
@@ -60,7 +60,7 @@ def _mongo_uri() -> str:
 
 
 def _mongo_client() -> MongoClient:
-    client = MongoClient(_mongo_uri(), serverSelectionTimeoutMS=10_000,
+    client = MongoClient(_mongo_uri(), serverSelectionTimeoutMS=10_000, maxPoolSize=int(os.getenv("MONGO_MAX_POOL_SIZE", "50")),
                          appname="wrc-transform")
     client.admin.command("ping")
     return client
@@ -139,9 +139,17 @@ def run_transformation(start_date: str, end_date: str) -> dict:
     src_bucket = os.getenv("MINIO_BUCKET", "wrc-decisions")
     dst_bucket = os.getenv("MINIO_BUCKET_CLEAN", "wrc-decisions-clean")
 
+    batch_size = int(os.getenv("MONGO_BULK_BATCH_SIZE", "100"))
+    pending_ops: list = []
+
     mongo = _minio = None
     processed = transformed_html = passthrough = failed = 0
     failures: list[dict] = []
+
+    def flush_ops():
+        if pending_ops:
+            dst.bulk_write(pending_ops, ordered=False)
+            pending_ops.clear()
 
     try:
         mongo = _mongo_client()
@@ -212,12 +220,16 @@ def run_transformation(start_date: str, end_date: str) -> dict:
                     "source_landing_hash": record.get("file_hash"),
                     "transformed_at": now,
                 })
-                # Idempotent: same identifier+new_hash won't duplicate on re-run.
-                dst.update_one(
-                    {"identifier": identifier, "file_hash": new_hash},
-                    {"$set": clean_meta, "$setOnInsert": {"first_seen_at": now}},
-                    upsert=True,
+                pending_ops.append(
+                    UpdateOne(
+                        {"identifier": identifier, "file_hash": new_hash},
+                        {"$set": clean_meta, "$setOnInsert": {"first_seen_at": now}},
+                        upsert=True,
+                    )
                 )
+                if len(pending_ops) >= batch_size:
+                    flush_ops()
+
                 processed += 1
                 logger.info("document_transformed", extra={"identifier": identifier, "extension": extension, "new_hash": new_hash, "new_object": new_object})
             except Exception as error:  # noqa: BLE001 - log and continue per brief
@@ -228,6 +240,9 @@ def run_transformation(start_date: str, end_date: str) -> dict:
                     "error": repr(error),
                 })
                 logger.error("document_transform_failed", extra={"identifier": identifier, "object_name": object_name, "error": repr(error)})
+
+        # Flush any remaining buffered upserts.
+        flush_ops()
 
         summary = {
             "matched": total,

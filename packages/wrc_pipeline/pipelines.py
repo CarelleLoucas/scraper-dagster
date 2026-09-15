@@ -6,7 +6,7 @@ from urllib.parse import quote_plus
 
 from itemadapter import ItemAdapter
 from minio import Minio
-from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient, UpdateOne
 from scrapy import signals
 from scrapy.exceptions import NotConfigured
 
@@ -19,6 +19,8 @@ class MongoMinioPipeline:
         self.collection = None
         self.minio_client: Minio | None = None
         self.bucket = os.getenv("MINIO_BUCKET", "wrc-decisions")
+        self.pending_ops: list = []
+        self.batch_size = int(os.getenv("MONGO_BULK_BATCH_SIZE", "100"))
 
     @classmethod
     def from_crawler(cls, crawler):
@@ -31,6 +33,7 @@ class MongoMinioPipeline:
         self.mongo_client = MongoClient(
             self._mongo_uri(),
             serverSelectionTimeoutMS=10_000,
+            maxPoolSize=int(os.getenv("MONGO_MAX_POOL_SIZE", "50")),
             appname="wrc-scraper",
         )
         self.mongo_client.admin.command("ping")
@@ -102,17 +105,27 @@ class MongoMinioPipeline:
                 "last_seen_at": now,
             }
         )
-        self.collection.update_one(
-            {
-                "identifier": metadata["identifier"],
-                "file_hash": metadata["file_hash"],
-            },
-            {
-                "$set": metadata,
-                "$setOnInsert": {"first_seen_at": now},
-            },
-            upsert=True,
+        # self.collection.update_one(
+        #     {
+        #         "identifier": metadata["identifier"],   # WHERE (filter/match)
+        #         "file_hash": metadata["file_hash"],
+        #     },
+        #     {
+        #         "$set": metadata,   # WHAT (always write)
+        #         "$setOnInsert": {"first_seen_at": now},   # WHAT-ONLY-ON-INSERT
+        #     },
+        #     upsert=True,
+        # )
+
+        self.pending_ops.append(
+            UpdateOne(
+                {"identifier": metadata["identifier"], "file_hash": metadata["file_hash"]},
+                {"$set": metadata, "$setOnInsert": {"first_seen_at": now}},
+                upsert=True,
+            )
         )
+        if len(self.pending_ops) >= self.batch_size:
+            self._flush_ops()
 
         adapter.pop("_content", None)
         adapter["storage"] = metadata["storage"]
@@ -124,7 +137,13 @@ class MongoMinioPipeline:
         )
         return item
 
+    def _flush_ops(self) -> None:
+        if self.pending_ops:
+            self.collection.bulk_write(self.pending_ops, ordered=False)
+            self.pending_ops.clear()
+
     def close_spider(self, spider) -> None:
+        self._flush_ops()   # flush any buffered upserts before closing
         if self.mongo_client is not None:
             self.mongo_client.close()
 
